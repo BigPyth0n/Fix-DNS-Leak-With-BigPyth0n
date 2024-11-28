@@ -21,6 +21,8 @@ plaintext
 Copy code
 nameserver 1.1.1.1  # آدرس IP سرور DNS ترکیه‌ای را در اینجا وارد کنید
 nameserver 1.0.0.1  # یک سرور DNS دیگر به عنوان پشتیبان
+nameserver 1.1.1.1 
+nameserver 1.0.0.1
 تنظیم فایل پیکربندی برای resolvconf:
 فایل /etc/resolvconf/resolv.conf.d/base را ویرایش کنید:
 
@@ -40,6 +42,17 @@ bash
 Copy code
 sudo resolvconf -u
 راه‌اندازی مجدد سرویس‌های شبکه:
+((((((
+برای رفع خطای 
+sudo resolvconf -u
+sudo: unable to resolve host zdlfyzsx.vm: Name or service not known
+===>
+sudo nano /etc/hosts
+اضافه کردن این سرها
+127.0.0.1   localhost
+127.0.1.1   zdlfyzsx.vm
+
+))))))
 برای اطمینان از اعمال تغییرات، سرویس‌های شبکه را مجدداً راه‌اندازی کنید:
 
 bash
