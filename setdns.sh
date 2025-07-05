@@ -8,33 +8,42 @@ YELLOW='\033[1;33m'
 NC='\033[0m'
 
 clear
-echo -e "${BLUE}🌐 برنامه‌نویس: Big ${NC}"
+echo -e "${BLUE}🌐 برنامه‌نویس: BigPyth0n${NC}"
 sleep 1
 echo -e "${BLUE}🧠 اجرای نسخه نهایی و کنترل‌شده ضد DNS Leak...${NC}"
 sleep 1
 
-# نصب ابزارهای ضروری (بدون کش)
-REQUIRED_PKGS=(curl jq dnsutils resolvconf net-tools)
+# پکیج‌های مورد نیاز
+REQUIRED_PKGS=(curl jq dnsutils resolvconf net-tools lsb-release wget)
 for pkg in "${REQUIRED_PKGS[@]}"; do
     if ! dpkg -l | grep -qw "$pkg"; then
         echo -e "${YELLOW}🔧 نصب ${pkg}...${NC}"
-        sudo apt clean
-        sudo rm -rf /var/lib/apt/lists/*
-        sudo apt update -o Acquire::http::No-Cache=true -o Acquire::https::No-Cache=true
-        sudo apt install --no-install-recommends -y "$pkg"
+        sudo apt-get update
+        sudo apt-get install -y "$pkg"
     fi
 done
 
-# اطلاعات سرور
-INFO=$(curl -s https://ipinfo.io)
+# اصلاح hostname برای جلوگیری از sudo errors
+HOSTNAME=$(cat /etc/hostname 2>/dev/null | tr -d '[:space:]')
+[ -z "$HOSTNAME" ] && HOSTNAME=$(hostname)
+[ -z "$HOSTNAME" ] && HOSTNAME="localhost"
+
+if ! grep -q "$HOSTNAME" /etc/hosts; then
+    echo -e "${YELLOW}🩺 اصلاح /etc/hosts برای hostname: $HOSTNAME${NC}"
+    sudo sed -i '/127.0.1.1/d' /etc/hosts
+    echo "127.0.1.1   $HOSTNAME" | sudo tee -a /etc/hosts > /dev/null
+fi
+
+# دریافت موقعیت سرور
+INFO=$(curl -s https://ipinfo.io || echo "")
 IP=$(echo "$INFO" | jq -r .ip)
 COUNTRY=$(echo "$INFO" | jq -r .country)
 CITY=$(echo "$INFO" | jq -r .city)
 TIMEZONE=$(echo "$INFO" | jq -r .timezone)
 
-echo -e "${BLUE}🛰️ موقعیت سرور: ${GREEN}$COUNTRY - $CITY${NC}"
-echo -e "${BLUE}🌐 IP سرور: ${GREEN}$IP${NC}"
-echo -e "${BLUE}⏰ تایم‌زون مناسب: ${GREEN}$TIMEZONE${NC}"
+echo -e "${BLUE}🛰️ موقعیت سرور: ${GREEN}${COUNTRY:-Unknown} - ${CITY:-Unknown}${NC}"
+echo -e "${BLUE}🌐 IP سرور: ${GREEN}${IP:-Unknown}${NC}"
+echo -e "${BLUE}⏰ تایم‌زون مناسب: ${GREEN}${TIMEZONE:-UTC}${NC}"
 
 # تنظیم timezone
 if [ -n "$TIMEZONE" ]; then
@@ -42,10 +51,10 @@ if [ -n "$TIMEZONE" ]; then
     sudo timedatectl set-timezone "$TIMEZONE"
 fi
 
-# دریافت لیست DNS معتبر از سایت
+# دریافت لیست IP از صفحه dnscheck.tools
 echo -e "${BLUE}🌐 واکشی لیست DNSها از dnscheck.tools...${NC}"
 DNS_RAW=$(curl -s https://dnscheck.tools/ | grep -Eo '([0-9]{1,3}\.){3}[0-9]{1,3}' |
-  awk -F. '{if (NF==4 && $1<=255 && $2<=255 && $3<=255 && $4<=255) print}' | sort -u)
+  awk -F. '($1<=255 && $2<=255 && $3<=255 && $4<=255)' | sort -u)
 
 VALID_DNS_LIST=()
 echo -e "${YELLOW}🔍 بررسی DNSهای پاسخگو در کشور $COUNTRY...${NC}"
@@ -63,41 +72,29 @@ for dns in $DNS_RAW; do
     fi
 done
 
-# fallback
+# fallback در صورت نبود DNS معتبر
 if [ ${#VALID_DNS_LIST[@]} -eq 0 ]; then
     echo -e "${RED}🚨 هیچ DNS بومی یافت نشد! استفاده از Cloudflare...${NC}"
     VALID_DNS_LIST=("1.1.1.1" "1.0.0.1")
 fi
 
-# تنظیم systemd-resolved
+# پیکربندی systemd-resolved
 DNS_LINE=$(IFS=" "; echo "${VALID_DNS_LIST[*]}")
 echo -e "${BLUE}⚙️ اعمال DNS به systemd-resolved: $DNS_LINE${NC}"
 sudo sed -i '/^DNS=/d;/^FallbackDNS=/d' /etc/systemd/resolved.conf
 echo -e "[Resolve]\nDNS=$DNS_LINE\nFallbackDNS=" | sudo tee /etc/systemd/resolved.conf > /dev/null
 sudo systemctl restart systemd-resolved
 sudo ln -sf /run/systemd/resolve/resolv.conf /etc/resolv.conf
-resolvectl flush-caches
 
-# اصلاح /etc/hosts
-HOSTNAME=$(hostname)
-if ! grep -q "$HOSTNAME" /etc/hosts; then
-    echo -e "${YELLOW}🩺 اصلاح hosts برای hostname: $HOSTNAME${NC}"
-    sudo sed -i "/127.0.1.1/d" /etc/hosts
-    echo "127.0.1.1   $HOSTNAME" | sudo tee -a /etc/hosts > /dev/null
-fi
+# اجرای cloudflared برای محافظت از WebRTC Leak
+echo -e "${BLUE}🚀 نصب cloudflared برای جلوگیری از WebRTC Leak...${NC}"
+wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb -O cloudflared.deb
+sudo dpkg -i cloudflared.deb
 
-# نصب cloudflared برای جلوگیری از WebRTC Leak
-if ! command -v cloudflared >/dev/null; then
-    echo -e "${YELLOW}🚀 نصب cloudflared برای جلوگیری از WebRTC Leak...${NC}"
-    wget -O cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
-    sudo dpkg -i cloudflared.deb && rm cloudflared.deb
-fi
+echo -e "${YELLOW}🛡️ اجرای Cloudflare DNS Proxy در پورت 5053...${NC}"
+nohup cloudflared proxy-dns --port 5053 > /dev/null 2>&1 &
 
-# اجرای DNS Proxy در پس‌زمینه
-echo -e "${BLUE}🛡️ اجرای Cloudflare DNS Proxy در پورت 5053...${NC}"
-tmux new-session -d -s cfproxy "cloudflared proxy-dns --port 5053"
-
-# بررسی نهایی
+# بررسی نهایی DNS
 echo -e "\n${BLUE}🧪 بررسی نهایی با dig...${NC}"
 ACTIVE_DNS=$(dig example.com | grep "SERVER" | awk '{print $3}')
 echo -e "${YELLOW}🧭 DNS فعال: $ACTIVE_DNS${NC}"
