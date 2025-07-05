@@ -12,21 +12,42 @@ echo -e "${BLUE}🌐 برنامه‌نویس: BigPyth0n${NC}"
 echo -e "${BLUE}🧠 اجرای نسخه نهایی و کنترل‌شده ضد DNS Leak...${NC}"
 sleep 1
 
-# اصلاح /etc/hosts برای جلوگیری از خطای sudo
-HOSTNAME=$(hostname)
-if ! grep -q "$HOSTNAME" /etc/hosts; then
-    echo -e "${YELLOW}🩺 اصلاح /etc/hosts برای hostname: $HOSTNAME${NC}"
-    sudo sed -i '/127.0.1.1/d' /etc/hosts
-    echo "127.0.1.1 $HOSTNAME" | sudo tee -a /etc/hosts > /dev/null
+# نمایش وضعیت hostname قبل از هر اصلاح
+echo -e "\n${YELLOW}📌 وضعیت اولیه hostname:${NC}"
+hostnamectl status
+
+# استخراج hostname فعلی
+CURRENT_HOSTNAME=$(hostname)
+STATIC_HOSTNAME=$(hostnamectl status | grep "Static hostname" | awk '{print $3}')
+
+# اگر Static hostname ست نشده بود، تنظیمش کن
+if [[ "$STATIC_HOSTNAME" == "n/a" || -z "$STATIC_HOSTNAME" ]]; then
+    echo -e "${YELLOW}🧩 تنظیم Static hostname به: $CURRENT_HOSTNAME${NC}"
+    echo "$CURRENT_HOSTNAME" | sudo tee /etc/hostname > /dev/null
+    sudo hostnamectl set-hostname "$CURRENT_HOSTNAME"
+    sleep 1
 fi
 
-# تنظیم DNS موقت برای اطمینان از آپدیت
-echo -e "${YELLOW}🔧 تنظیم DNS اولیه برای نصب پکیج‌ها...${NC}"
+# اصلاح فایل /etc/hosts
+if ! grep -q "$CURRENT_HOSTNAME" /etc/hosts; then
+    echo -e "${YELLOW}🩺 اصلاح /etc/hosts برای hostname: $CURRENT_HOSTNAME${NC}"
+    sudo sed -i '/127.0.1.1/d' /etc/hosts
+    echo "127.0.1.1 $CURRENT_HOSTNAME" | sudo tee -a /etc/hosts > /dev/null
+fi
+
+# تأیید نهایی اصلاح hostname
+echo -e "\n${GREEN}✅ بررسی مجدد وضعیت hostname بعد از اصلاح:${NC}"
+hostnamectl status
+echo -e "${YELLOW}📄 محتوای فایل /etc/hostname:${NC}"
+cat /etc/hostname
+
+# ادامه تنظیمات DNS
+echo -e "${YELLOW}\n🔧 تنظیم DNS اولیه برای نصب پکیج‌ها...${NC}"
 echo -e "[Resolve]\nDNS=1.1.1.1 1.0.0.1\nFallbackDNS=" | sudo tee /etc/systemd/resolved.conf > /dev/null
 sudo systemctl restart systemd-resolved
 sudo ln -sf /run/systemd/resolve/resolv.conf /etc/resolv.conf
 
-# نصب ابزارهای موردنیاز
+# نصب ابزارهای ضروری
 REQUIRED_PKGS=(curl jq dnsutils resolvconf net-tools lsb-release wget)
 for pkg in "${REQUIRED_PKGS[@]}"; do
     if ! dpkg -l | grep -qw "$pkg"; then
@@ -36,7 +57,7 @@ for pkg in "${REQUIRED_PKGS[@]}"; do
     fi
 done
 
-# دریافت اطلاعات IP و موقعیت
+# دریافت اطلاعات سرور
 IP=$(curl -s https://ipinfo.io/ip || echo "Unknown")
 COUNTRY=$(curl -s https://ipinfo.io/country || echo "Unknown")
 CITY=$(curl -s https://ipinfo.io/city || echo "Unknown")
@@ -47,7 +68,7 @@ echo -e "${BLUE}🌐 IP سرور: ${GREEN}${IP}${NC}"
 echo -e "${BLUE}⏰ تایم‌زون مناسب: ${GREEN}${TIMEZONE}${NC}"
 sudo timedatectl set-timezone "$TIMEZONE" 2>/dev/null
 
-# واکشی DNSهای محلی از Github
+# واکشی DNS بومی از Github
 echo -e "${BLUE}🌐 واکشی لیست DNSها از dnscheck.tools...${NC}"
 DNS_LIST=$(curl -s https://raw.githubusercontent.com/oneofcode/public-dns/main/dns_${COUNTRY,,}.json | jq -r '.[].ip' | head -n 5)
 
@@ -63,7 +84,7 @@ for dns in $DNS_LIST; do
     fi
 done
 
-# اگر DNS معتبر نبود، fallback به Cloudflare
+# fallback در صورت نبود DNS سالم
 if [ ${#VALID_DNS[@]} -eq 0 ]; then
     echo -e "${RED}🚨 هیچ DNS بومی یافت نشد! استفاده از Cloudflare...${NC}"
     VALID_DNS=("1.1.1.1" "1.0.0.1")
@@ -77,17 +98,17 @@ echo -e "[Resolve]\nDNS=${DNS_LINE}\nFallbackDNS=" | sudo tee /etc/systemd/resol
 sudo systemctl restart systemd-resolved
 sudo ln -sf /run/systemd/resolve/resolv.conf /etc/resolv.conf
 
-# نصب cloudflared مناسب معماری سیستم
+# نصب cloudflared
 echo -e "${BLUE}🚀 نصب cloudflared برای جلوگیری از WebRTC Leak...${NC}"
 ARCH=$(dpkg --print-architecture)
 URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${ARCH}.deb"
 wget -q "$URL" -O cloudflared.deb && sudo dpkg -i cloudflared.deb >/dev/null && rm cloudflared.deb
 
-# اجرای DNS Proxy با cloudflared
+# اجرای DNS Proxy
 echo -e "${YELLOW}🛡️ اجرای Cloudflare DNS Proxy در پورت 5053...${NC}"
 nohup cloudflared proxy-dns --port 5053 --upstream https://1.1.1.1/dns-query --upstream https://1.0.0.1/dns-query > /dev/null 2>&1 &
 
-# بررسی نهایی با dig
+# بررسی نهایی
 echo -e "\n${BLUE}🧪 بررسی نهایی با dig...${NC}"
 ACTIVE_DNS=$(dig example.com | grep SERVER | awk '{print $3}')
 echo -e "${YELLOW}🧭 DNS فعال: ${ACTIVE_DNS}${NC}"
