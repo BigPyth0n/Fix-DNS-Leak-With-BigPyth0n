@@ -50,6 +50,8 @@ chmod +x setdns.sh
 sudo ./setdns.sh
 ```
 
+## 🚀 اجرای مستقیم با مجوز
+
 ```bash
 bash <(curl -fsSL -H 'Cache-Control: no-cache' https://raw.githubusercontent.com/BigPyth0n/Fix-DNS-Leak-With-GPT/main/setdns.sh)
 ```
