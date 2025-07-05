@@ -8,19 +8,23 @@ YELLOW='\033[1;33m'
 NC='\033[0m'
 
 clear
-echo -e "${BLUE}🌐 برنامه‌نویس: بهروز ${NC}"
+echo -e "${BLUE}🌐 برنامه‌نویس: BigPyth0n ${NC}"
 sleep 1
 echo -e "${BLUE}🧠 اجرای نسخه نهایی و کنترل‌شده ضد DNS Leak...${NC}"
 sleep 1
 
-# نصب ابزارهای مورد نیاز
+# نصب ابزارهای مورد نیاز بدون استفاده از کش
 REQUIRED_PKGS=(curl jq dnsutils resolvconf)
 for pkg in "${REQUIRED_PKGS[@]}"; do
     if ! dpkg -l | grep -qw "$pkg"; then
-        echo -e "${YELLOW}🔧 نصب ${pkg}...${NC}"
-        sudo apt update && sudo apt install -y "$pkg"
+        echo -e "${YELLOW}🔧 نصب ${pkg} (بدون کش)...${NC}"
+        sudo apt clean
+        sudo rm -rf /var/lib/apt/lists/*
+        sudo apt update -o Acquire::http::No-Cache=true -o Acquire::https::No-Cache=true
+        sudo apt install --no-install-recommends -y "$pkg"
     fi
 done
+
 
 # مرحله 1: تشخیص موقعیت سرور
 INFO=$(curl -s https://ipinfo.io)
