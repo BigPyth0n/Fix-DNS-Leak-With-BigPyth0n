@@ -8,7 +8,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m'
 
 clear
-echo -e "${BLUE}🌐 برنامه‌نویس: BigPyth0n${NC}"
+echo -e "${BLUE}🌐 برنامه‌نویس: Bigly${NC}"
 sleep 1
 echo -e "${BLUE}🧠 اجرای نسخه نهایی و کنترل‌شده ضد DNS Leak...${NC}"
 sleep 1
