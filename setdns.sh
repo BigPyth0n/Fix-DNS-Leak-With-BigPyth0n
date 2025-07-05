@@ -8,14 +8,14 @@ YELLOW='\033[1;33m'
 NC='\033[0m'
 
 clear
-echo -e "${BLUE}🌐 اجرای نسخه نهایی هوشمند و پایدار ضد DNS Leak...${NC}"
+echo -e "${BLUE}🌐 اجرای نسخه نهایی و کنترل‌شده ضد DNS Leak...${NC}"
 sleep 1
 
-# نصب ابزارهای ضروری (بدون dig مستقیم)
+# نصب ابزارهای ضروری
 REQUIRED_PKGS=(curl jq dnsutils resolvconf)
 for pkg in "${REQUIRED_PKGS[@]}"; do
     if ! dpkg -l | grep -qw "$pkg"; then
-        echo -e "${YELLOW}🔧 در حال نصب ${pkg}...${NC}"
+        echo -e "${YELLOW}🔧 نصب ${pkg}...${NC}"
         sudo apt install -y "$pkg"
     fi
 done
@@ -29,10 +29,10 @@ CITY=$(echo "$INFO" | jq -r .city)
 echo -e "${BLUE}🛰️ موقعیت سرور: ${GREEN}$COUNTRY - $CITY${NC}"
 echo -e "${BLUE}🌐 IP سرور: ${GREEN}$IP${NC}"
 
-# مرحله 2: واکشی لیست DNS عمومی از dnscheck.tools با فیلتر دقیق IPv4 معتبر
+# مرحله 2: واکشی لیست DNS عمومی با فیلتر دقیق IP معتبر
 echo -e "${BLUE}🌐 واکشی و فیلتر دقیق IPهای معتبر از dnscheck.tools...${NC}"
 DNS_RAW=$(curl -s https://dnscheck.tools/ | grep -Eo '([0-9]{1,3}\.){3}[0-9]{1,3}' |
-    awk -F. '($1<=255 && $2<=255 && $3<=255 && $4<=255)' | sort -u)
+  awk -F. '($1<=255 && $2<=255 && $3<=255 && $4<=255)' | sort -u)
 
 # مرحله 3: تست DNSها بر اساس موقعیت و پاسخ‌گویی
 VALID_DNS_LIST=()
@@ -51,9 +51,9 @@ for dns in $DNS_RAW; do
     fi
 done
 
-# مرحله 4: fallback در صورت عدم وجود DNS مناسب
+# مرحله 4: fallback در صورت نبود DNS مناسب
 if [ ${#VALID_DNS_LIST[@]} -eq 0 ]; then
-    echo -e "${RED}🚨 هیچ DNS معتبر و فعال در کشور $COUNTRY یافت نشد. استفاده از Cloudflare به عنوان fallback.${NC}"
+    echo -e "${RED}🚨 هیچ DNS معتبر در کشور $COUNTRY یافت نشد. استفاده از Cloudflare به عنوان fallback.${NC}"
     VALID_DNS_LIST=("1.1.1.1" "1.0.0.1")
 fi
 
@@ -68,20 +68,20 @@ sudo ln -sf /run/systemd/resolve/resolv.conf /etc/resolv.conf
 # اصلاح hosts
 HOSTNAME=$(hostname)
 if ! grep -q "$HOSTNAME" /etc/hosts; then
-    echo -e "${YELLOW}🩺 اصلاح hosts برای hostname: $HOSTNAME${NC}"
+    echo -e "${YELLOW}🩺 اصلاح فایل hosts برای hostname: $HOSTNAME${NC}"
     sudo sed -i "/127.0.1.1/d" /etc/hosts
     echo "127.0.1.1   $HOSTNAME" | sudo tee -a /etc/hosts > /dev/null
 fi
 
-# مرحله نهایی: بررسی نشتی DNS
-echo -e "\n${BLUE}🧪 بررسی نهایی: نشتی DNS یا خیر؟${NC}"
+# مرحله نهایی: بررسی DNS فعال و احتمال نشتی
+echo -e "\n${BLUE}🧪 بررسی نهایی با dig...${NC}"
 ACTIVE_DNS=$(dig example.com | grep "SERVER" | awk '{print $3}')
 echo -e "${YELLOW}🧭 DNS فعال: $ACTIVE_DNS${NC}"
 
 if [[ "$ACTIVE_DNS" =~ ^(1\.1\.1\.1|1\.0\.0\.1|8\.8\.8\.8|9\.9\.9\.9)$ ]]; then
-    echo -e "${RED}❌ DNS Leak محتمل است! از DNS منطقه‌ای استفاده نشده.${NC}"
+    echo -e "${RED}❌ احتمال DNS Leak وجود دارد! DNS منطقه‌ای فعال نیست.${NC}"
 else
-    echo -e "${GREEN}✅ بدون نشتی DNS! از DNS محلی استفاده شده است.${NC}"
+    echo -e "${GREEN}✅ بدون نشتی DNS! از DNS بومی استفاده شده است.${NC}"
 fi
 
-echo -e "${YELLOW}🔗 بررسی دقیق‌تر: https://dnsleaktest.com${NC}"
+echo -e "${YELLOW}🔗 برای بررسی دقیق‌تر: https://dnsleaktest.com${NC}"
