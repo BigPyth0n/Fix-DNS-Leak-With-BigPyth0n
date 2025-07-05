@@ -8,19 +8,20 @@ YELLOW='\033[1;33m'
 NC='\033[0m'
 
 clear
-echo -e "${BLUE}🌐 اجرای اسکریپت حرفه‌ای ضد DNS Leak...${NC}"
+echo -e "${BLUE}🌐 اجرای اسکریپت نهایی ضد DNS Leak برای Ubuntu 22.04...${NC}"
 sleep 1
-
-# بررسی و نصب ابزارهای لازم
-REQUIRED_PKGS=(curl jq resolvconf)
+echo -e "${BLUE} BigPyth0n...${NC}"
+sleep 2
+# نصب ابزارهای ضروری
+REQUIRED_PKGS=(curl jq resolvconf tcpdump dnsutils)
 for pkg in "${REQUIRED_PKGS[@]}"; do
     if ! dpkg -l | grep -qw "$pkg"; then
-        echo -e "${YELLOW}🔧 نصب ${pkg}...${NC}"
+        echo -e "${YELLOW}🔧 در حال نصب ${pkg}...${NC}"
         sudo apt install -y "$pkg"
     fi
 done
 
-# دریافت اطلاعات IP
+# دریافت اطلاعات سرور
 INFO=$(curl -s https://ipinfo.io)
 IP=$(echo "$INFO" | jq -r .ip)
 COUNTRY=$(echo "$INFO" | jq -r .country)
@@ -61,23 +62,19 @@ esac
 
 echo -e "${YELLOW}✅ تنظیم DNS برای $COUNTRY → $LABEL${NC}"
 
-# تنظیم resolvconf
-echo -e "${BLUE}🔧 تنظیم resolvconf...${NC}"
-echo -e "nameserver $DNS1\nnameserver $DNS2" | sudo tee /etc/resolvconf/resolv.conf.d/base > /dev/null
-sudo resolvconf -u
-
 # تنظیم systemd-resolved
 echo -e "${BLUE}🔧 تنظیم systemd-resolved...${NC}"
-sudo sed -i "s/^#DNS=.*/DNS=$DNS1 $DNS2/" /etc/systemd/resolved.conf
-grep -q "^DNS=" /etc/systemd/resolved.conf || echo "DNS=$DNS1 $DNS2" | sudo tee -a /etc/systemd/resolved.conf > /dev/null
-sudo systemctl enable systemd-resolved
+sudo sed -i '/^DNS=/d;/^FallbackDNS=/d' /etc/systemd/resolved.conf
+echo -e "[Resolve]\nDNS=$DNS1 $DNS2\nFallbackDNS=" | sudo tee /etc/systemd/resolved.conf > /dev/null
+
+# راه‌اندازی مجدد سرویس
 sudo systemctl restart systemd-resolved
 
-# تصحیح لینک resolv.conf به systemd
-echo -e "${BLUE}🔗 تنظیم symbolic link برای /etc/resolv.conf...${NC}"
+# اطمینان از اتصال صحیح resolv.conf
+echo -e "${BLUE}🔗 تنظیم symlink صحیح برای /etc/resolv.conf...${NC}"
 sudo ln -sf /run/systemd/resolve/resolv.conf /etc/resolv.conf
 
-# اصلاح hosts
+# اصلاح /etc/hosts در صورت نیاز
 HOSTNAME=$(hostname)
 if ! grep -q "$HOSTNAME" /etc/hosts; then
     echo -e "${YELLOW}🩺 اصلاح فایل hosts برای hostname: $HOSTNAME${NC}"
@@ -85,7 +82,17 @@ if ! grep -q "$HOSTNAME" /etc/hosts; then
     echo "127.0.1.1   $HOSTNAME" | sudo tee -a /etc/hosts > /dev/null
 fi
 
-# نمایش پایان و راهنمای تست دستی
-echo -e "\n${GREEN}✅ تنظیمات DNS با موفقیت انجام شد.${NC}"
-echo -e "${BLUE}ℹ️ برای بررسی دقیق، لطفاً وارد سایت زیر شوید و Extended DNS Leak Test را اجرا کنید:${NC}"
-echo -e "${YELLOW}➡️  https://dnsleaktest.com${NC}"
+# تست نهایی با dig
+echo -e "\n${BLUE}🧪 اجرای تست dig برای بررسی DNS فعال...${NC}"
+DNS_USED=$(dig +short example.com | head -n1)
+SERVER_USED=$(dig example.com | grep "SERVER" | awk '{print $3}')
+
+echo -e "${YELLOW}🌍 IP برگشتی: $DNS_USED${NC}"
+echo -e "${YELLOW}🧭 سرور DNS فعال: $SERVER_USED${NC}"
+
+# بررسی نشتی واقعی با tcpdump (برای 3 ثانیه)
+echo -e "\n${BLUE}🔍 بررسی زنده نشتی DNS با tcpdump (3 ثانیه)...${NC}"
+sudo timeout 3 tcpdump -i any port 53 -nn
+
+echo -e "\n${GREEN}✅ تنظیمات اعمال شد. اگر در خروجی tcpdump فقط DNS کشور شما ظاهر شد، نشتی وجود ندارد.${NC}"
+echo -e "${YELLOW}💡 همچنین برای اطمینان بیشتر می‌توانید به https://dnsleaktest.com مراجعه نمایید.${NC}"
