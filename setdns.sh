@@ -72,6 +72,9 @@ sudo sed -i "s/^#DNS=.*/DNS=$DNS1 $DNS2/" /etc/systemd/resolved.conf
 grep -q "^DNS=" /etc/systemd/resolved.conf || echo "DNS=$DNS1 $DNS2" | sudo tee -a /etc/systemd/resolved.conf > /dev/null
 sudo systemctl enable systemd-resolved
 sudo systemctl restart systemd-resolved
+
+# تصحیح لینک resolv.conf به systemd
+echo -e "${BLUE}🔗 تنظیم symbolic link برای /etc/resolv.conf...${NC}"
 sudo ln -sf /run/systemd/resolve/resolv.conf /etc/resolv.conf
 
 # اصلاح hosts
@@ -82,15 +85,7 @@ if ! grep -q "$HOSTNAME" /etc/hosts; then
     echo "127.0.1.1   $HOSTNAME" | sudo tee -a /etc/hosts > /dev/null
 fi
 
-# نمایش پایان و تست
+# نمایش پایان و راهنمای تست دستی
 echo -e "\n${GREEN}✅ تنظیمات DNS با موفقیت انجام شد.${NC}"
-echo -e "${BLUE}🔍 اجرای Extended DNS Leak Test (از طریق dnsleaktest.com)...${NC}"
-sleep 2
-
-TEST_URL="https://www.dnsleaktest.com/"
-echo -e "${YELLOW}📥 دریافت اطلاعات تست...${NC}"
-RESULT=$(curl -s "$TEST_URL" | grep -A20 "Your IP" | sed 's/^/    /')
-echo -e "${GREEN}🧪 نتیجه تست:${NC}\n$RESULT"
-
-echo -e "\n${GREEN}🏁 پایان اسکریپت. اگر نتایج صحیح نبود، دستی بررسی کنید:${NC}"
+echo -e "${BLUE}ℹ️ برای بررسی دقیق، لطفاً وارد سایت زیر شوید و Extended DNS Leak Test را اجرا کنید:${NC}"
 echo -e "${YELLOW}➡️  https://dnsleaktest.com${NC}"
