@@ -8,70 +8,63 @@ YELLOW='\033[1;33m'
 NC='\033[0m'
 
 clear
-echo -e "${BLUE}🌐 اجرای اسکریپت نهایی ضد DNS Leak برای Ubuntu 22.04...${NC}"
+echo -e "${BLUE}🌐 اجرای اسکریپت نهایی هوشمند جلوگیری از DNS Leak...${NC}"
 sleep 1
-echo -e "${BLUE} BigPyth0n...${NC}"
-sleep 2
+
 # نصب ابزارهای ضروری
-REQUIRED_PKGS=(curl jq resolvconf tcpdump dnsutils)
+REQUIRED_PKGS=(curl jq dig dnsutils resolvconf)
 for pkg in "${REQUIRED_PKGS[@]}"; do
     if ! dpkg -l | grep -qw "$pkg"; then
-        echo -e "${YELLOW}🔧 در حال نصب ${pkg}...${NC}"
+        echo -e "${YELLOW}🔧 نصب ${pkg}...${NC}"
         sudo apt install -y "$pkg"
     fi
 done
 
-# دریافت اطلاعات سرور
+# مرحله 1: تشخیص موقعیت سرور
 INFO=$(curl -s https://ipinfo.io)
 IP=$(echo "$INFO" | jq -r .ip)
 COUNTRY=$(echo "$INFO" | jq -r .country)
-ORG=$(echo "$INFO" | jq -r .org)
 CITY=$(echo "$INFO" | jq -r .city)
 
-echo -e "${BLUE}🛰️ موقعیت سرور: ${GREEN}$COUNTRY ($CITY) | $ORG${NC}"
+echo -e "${BLUE}🛰️ موقعیت سرور: ${GREEN}$COUNTRY - $CITY${NC}"
 echo -e "${BLUE}🌐 IP سرور: ${GREEN}$IP${NC}"
 
-# تعیین DNS بر اساس کشور
-case "$COUNTRY" in
-  TR)
-    DNS1="193.192.98.66"
-    DNS2="212.156.4.20"
-    LABEL="🇹🇷 DNS ترکیه (Turk Telekom)"
-    ;;
-  DE)
-    DNS1="194.150.168.168"
-    DNS2="194.150.168.169"
-    LABEL="🇩🇪 DNS آلمان (CCC)"
-    ;;
-  NL)
-    DNS1="80.65.64.13"
-    DNS2="80.65.64.14"
-    LABEL="🇳🇱 DNS هلند (Bit)"
-    ;;
-  US)
-    DNS1="9.9.9.9"
-    DNS2="149.112.112.112"
-    LABEL="🇺🇸 DNS آمریکا (Quad9)"
-    ;;
-  *)
-    DNS1="1.1.1.1"
-    DNS2="1.0.0.1"
-    LABEL="🌐 DNS عمومی (Cloudflare)"
-    ;;
-esac
+# مرحله 2: واکشی DNSهای محلی از dnscheck.tools
+echo -e "${BLUE}🌐 در حال واکشی DNSهای منطقه‌ای از dnscheck.tools...${NC}"
+DNS_RAW=$(curl -s https://dnscheck.tools/ | grep -Eo '([0-9]{1,3}\.){3}[0-9]{1,3}' | sort -u)
 
-echo -e "${YELLOW}✅ تنظیم DNS برای $COUNTRY → $LABEL${NC}"
+# مرحله 3: فیلتر DNSهایی که در همان کشور هستند (فقط استانبول/TR در این نسخه)
+VALID_DNS_LIST=()
+echo -e "${YELLOW}🔎 بررسی فعال بودن DNSها...${NC}"
+for dns in $DNS_RAW; do
+    LOC=$(curl -s https://ipinfo.io/$dns | jq -r '.country + " " + .city')
+    if [[ "$LOC" == "$COUNTRY "* ]]; then
+        # تست پاسخگویی DNS
+        if dig +time=1 +tries=1 @$dns example.com | grep -q "ANSWER:"; then
+            echo -e "${GREEN}✅ $dns فعال و در $LOC${NC}"
+            VALID_DNS_LIST+=("$dns")
+        else
+            echo -e "${RED}❌ $dns در $LOC پاسخگو نیست${NC}"
+        fi
+    else
+        echo -e "${RED}⚠️ $dns در کشور دیگری قرار دارد ($LOC)${NC}"
+    fi
+done
 
-# تنظیم systemd-resolved
-echo -e "${BLUE}🔧 تنظیم systemd-resolved...${NC}"
+# مرحله 4: بررسی اینکه حداقل یک DNS معتبر یافت شده یا نه
+if [ ${#VALID_DNS_LIST[@]} -eq 0 ]; then
+    echo -e "${RED}🚨 هیچ DNS معتبر و فعال در کشور $COUNTRY یافت نشد. استفاده از Cloudflare به عنوان پیش‌فرض.${NC}"
+    VALID_DNS_LIST=("1.1.1.1" "1.0.0.1")
+fi
+
+# مرحله 5: ست کردن DNSها در systemd-resolved
+DNS_LINE=$(IFS=" "; echo "${VALID_DNS_LIST[*]}")
+echo -e "${BLUE}⚙️ تنظیم systemd-resolved با DNSهای: $DNS_LINE${NC}"
 sudo sed -i '/^DNS=/d;/^FallbackDNS=/d' /etc/systemd/resolved.conf
-echo -e "[Resolve]\nDNS=$DNS1 $DNS2\nFallbackDNS=" | sudo tee /etc/systemd/resolved.conf > /dev/null
-
-# راه‌اندازی مجدد سرویس
+echo -e "[Resolve]\nDNS=$DNS_LINE\nFallbackDNS=" | sudo tee /etc/systemd/resolved.conf > /dev/null
 sudo systemctl restart systemd-resolved
 
 # اطمینان از اتصال صحیح resolv.conf
-echo -e "${BLUE}🔗 تنظیم symlink صحیح برای /etc/resolv.conf...${NC}"
 sudo ln -sf /run/systemd/resolve/resolv.conf /etc/resolv.conf
 
 # اصلاح /etc/hosts در صورت نیاز
@@ -82,17 +75,10 @@ if ! grep -q "$HOSTNAME" /etc/hosts; then
     echo "127.0.1.1   $HOSTNAME" | sudo tee -a /etc/hosts > /dev/null
 fi
 
-# تست نهایی با dig
-echo -e "\n${BLUE}🧪 اجرای تست dig برای بررسی DNS فعال...${NC}"
-DNS_USED=$(dig +short example.com | head -n1)
-SERVER_USED=$(dig example.com | grep "SERVER" | awk '{print $3}')
+# مرحله نهایی: تایید DNS فعال
+echo -e "\n${BLUE}🧪 بررسی نهایی با dig...${NC}"
+dig example.com | grep "SERVER"
 
-echo -e "${YELLOW}🌍 IP برگشتی: $DNS_USED${NC}"
-echo -e "${YELLOW}🧭 سرور DNS فعال: $SERVER_USED${NC}"
-
-# بررسی نشتی واقعی با tcpdump (برای 3 ثانیه)
-echo -e "\n${BLUE}🔍 بررسی زنده نشتی DNS با tcpdump (3 ثانیه)...${NC}"
-sudo timeout 3 tcpdump -i any port 53 -nn
-
-echo -e "\n${GREEN}✅ تنظیمات اعمال شد. اگر در خروجی tcpdump فقط DNS کشور شما ظاهر شد، نشتی وجود ندارد.${NC}"
-echo -e "${YELLOW}💡 همچنین برای اطمینان بیشتر می‌توانید به https://dnsleaktest.com مراجعه نمایید.${NC}"
+echo -e "\n${GREEN}✅ تنظیمات DNS هوشمند با موفقیت انجام شد.${NC}"
+echo -e "${YELLOW}💡 برای بررسی کامل‌تر وارد سایت زیر شوید:${NC}"
+echo -e "${YELLOW}➡️  https://dnsleaktest.com${NC}"
