@@ -35,8 +35,8 @@ hostnamectl status
 echo -e "${YELLOW}📄 محتوای فایل /etc/hostname:${NC}"
 cat /etc/hostname
 
-### گام 2: نصب ابزارهای لازم
-REQUIRED_PKGS=(curl wget jq dnsutils resolvconf net-tools lsb-release)
+### گام 2: نصب ابزارهای لازم (با cron)
+REQUIRED_PKGS=(curl wget jq dnsutils resolvconf net-tools lsb-release cron)
 MISSING_PKGS=()
 
 for pkg in "${REQUIRED_PKGS[@]}"; do
@@ -51,7 +51,15 @@ if [ ${#MISSING_PKGS[@]} -gt 0 ]; then
     apt-get install -y -qq "${MISSING_PKGS[@]}"
 fi
 
-### گام 3: دریافت DNSهای سالم بومی
+### گام 3: فعال‌سازی cron
+echo -e "${BLUE}🔁 فعال‌سازی سرویس cron...${NC}"
+systemctl enable cron >/dev/null 2>&1
+systemctl restart cron
+systemctl status cron | grep -q running && \
+    echo -e "${GREEN}✅ cron فعال است.${NC}" || \
+    echo -e "${RED}❌ cron فعال نشد.${NC}"
+
+### گام 4: دریافت DNSهای سالم بومی
 COUNTRY=$(curl -s https://ipinfo.io/country)
 echo -e "${BLUE}🌍 کشور شناسایی‌شده: ${GREEN}${COUNTRY}${NC}"
 echo -e "${YELLOW}🔍 بررسی DNSهای سالم برای کشور $COUNTRY...${NC}"
@@ -74,24 +82,24 @@ if [ ${#VALID_DNS[@]} -eq 0 ]; then
     VALID_DNS=("1.1.1.1" "1.0.0.1")
 fi
 
-### گام 4: اعمال DNS جدید
+### گام 5: اعمال DNS جدید
 DNS_LINE=$(IFS=" "; echo "${VALID_DNS[*]}")
 echo -e "${BLUE}⚙️ اعمال DNS: ${DNS_LINE}${NC}"
 echo -e "[Resolve]\nDNS=${DNS_LINE}\nFallbackDNS=" > /etc/systemd/resolved.conf
 systemctl restart systemd-resolved
 ln -sf /run/systemd/resolve/resolv.conf /etc/resolv.conf
 
-### گام 5: نصب cloudflared
+### گام 6: نصب cloudflared
 echo -e "${BLUE}🚀 نصب cloudflared برای جلوگیری از WebRTC Leak...${NC}"
 ARCH=$(dpkg --print-architecture)
 URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${ARCH}.deb"
 wget -q "$URL" -O cloudflared.deb && dpkg -i cloudflared.deb >/dev/null && rm cloudflared.deb
 
-### گام 6: اجرای DNS Proxy
+### گام 7: اجرای DNS Proxy
 echo -e "${YELLOW}🛡️ اجرای Cloudflare DNS Proxy در پورت 5053...${NC}"
 nohup cloudflared proxy-dns --port 5053 --upstream https://1.1.1.1/dns-query --upstream https://1.0.0.1/dns-query > /dev/null 2>&1 &
 
-### گام 7: بررسی نهایی
+### گام 8: بررسی نهایی
 echo -e "\n${BLUE}🧪 بررسی نهایی با dig...${NC}"
 ACTIVE_DNS=$(dig example.com | grep SERVER | awk '{print $3}')
 echo -e "${YELLOW}🧭 DNS فعال: ${ACTIVE_DNS}${NC}"
