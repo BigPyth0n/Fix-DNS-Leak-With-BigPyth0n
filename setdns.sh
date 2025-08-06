@@ -11,6 +11,10 @@ clear
 echo -e "${BLUE}🌐 برنامه‌نویس: Big ${NC}"
 echo -e "${BLUE}🧠 نسخه نهایی و حرفه‌ای ضد DNS Leak با منابع معتبر${NC}"
 
+### گام 0: به‌روزرسانی کامل سیستم
+echo -e "${YELLOW}🔄 در حال به‌روزرسانی سیستم با apt update و apt upgrade...${NC}"
+apt-get update -qq && apt-get upgrade -y -qq && echo -e "${GREEN}✅ سیستم به‌روز شد.${NC}" || echo -e "${RED}❌ خطا در به‌روزرسانی سیستم.${NC}"
+
 ### گام 1: اصلاح hostname و hosts
 echo -e "\n${YELLOW}📌 وضعیت اولیه hostname:${NC}"
 hostnamectl status
@@ -47,8 +51,9 @@ done
 
 if [ ${#MISSING_PKGS[@]} -gt 0 ]; then
     echo -e "${YELLOW}📦 نصب پکیج‌های ضروری: ${MISSING_PKGS[*]}${NC}"
-    apt-get update -qq
     apt-get install -y -qq "${MISSING_PKGS[@]}"
+else
+    echo -e "${GREEN}✅ تمام پکیج‌های ضروری قبلاً نصب شده‌اند.${NC}"
 fi
 
 ### گام 3: فعال‌سازی cron
