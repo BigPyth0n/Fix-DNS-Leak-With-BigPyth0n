@@ -87,11 +87,17 @@ if [ ${#VALID_DNS[@]} -eq 0 ]; then
     VALID_DNS=("1.1.1.1" "1.0.0.1")
 fi
 
-### گام 5: اعمال DNS جدید
+### گام 5: اعمال DNS جدید (اصلاح‌شده ✅)
 DNS_LINE=$(IFS=" "; echo "${VALID_DNS[*]}")
 echo -e "${BLUE}⚙️ اعمال DNS: ${DNS_LINE}${NC}"
+
+# کانفیگ systemd-resolved
 echo -e "[Resolve]\nDNS=${DNS_LINE}\nFallbackDNS=" > /etc/systemd/resolved.conf
+
+# ریستارت سرویس
 systemctl restart systemd-resolved
+
+# اطمینان از اینکه /etc/resolv.conf به مسیر درست لینک شده
 ln -sf /run/systemd/resolve/resolv.conf /etc/resolv.conf
 
 ### گام 6: نصب cloudflared
