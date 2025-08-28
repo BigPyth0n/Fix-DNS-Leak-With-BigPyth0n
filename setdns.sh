@@ -4,17 +4,16 @@
 # اسکریپت بهینه‌سازی و ضد نشت DNS برای سرورهای لینوکس (مبتنی بر دبیان/اوبونتو)
 # برنامه‌نویس اصلی: Big
 # بازبینی و بهینه‌سازی: Alisa
-# نسخه: 2.5
+# نسخه: 2.7
 #
 # این اسکریپت سیستم را به‌روز می‌کند، و
 # با استفاده از cloudflared یک پراکسی امن DNS-over-HTTPS راه‌اندازی می‌کند
 # تا تمام ترافیک DNS از یک نقطه واحد و امن (با استفاده از DNSهای Cloudflare) عبور کند.
 #
-# این نسخه برای رفع مشکلات گزارش‌شده در اوبونتو 22.04 و بهینه‌سازی فرایند نصب،
-# حذف مرحله تشخیص کشور و استفاده مستقیم از DNSهای Cloudflare، اصلاح شده است.
-# همچنین تعاملات اضافی در حین نصب پکیج‌ها حذف شده و اطمینان از فعال بودن cloudflared
+# این نسخه برای رفع مشکل قطعی DNS در زمان دانلود، حذف مرحله تشخیص کشور و
+# استفاده مستقیم از DNSهای Cloudflare، اصلاح شده است. همچنین تعاملات اضافی
+# در حین نصب پکیج‌ها و مدیریت needrestart حذف شده و اطمینان از فعال بودن cloudflared
 # قبل از تغییر پیکربندی سیستم DNS بهبود یافته است.
-# پایداری نصب و یافتن فایل اجرایی cloudflared نیز افزایش یافته است.
 #================================================================================
 
 # --- رنگ‌ها برای خروجی بهتر ---
@@ -24,6 +23,10 @@ BLUE='\033[1;34m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
+# --- تنظیمات عمومی برای اجرای غیرتعاملی ---
+export DEBIAN_FRONTEND=noninteractive
+export NEEDRESTART_MODE=a # Automatic restart for needrestart
+
 # --- بررسی اجرای اسکریپت با دسترسی روت ---
 if [ "$EUID" -ne 0 ]; then
   echo -e "${RED}❌ لطفاً این اسکریپت را با دسترسی root یا با sudo اجرا کنید.${NC}"
@@ -32,16 +35,24 @@ fi
 
 clear
 echo -e "${BLUE}=====================================================${NC}"
-echo -e "${BLUE}     🚀 اسکریپت حرفه‌ای ضد DNS Leak (نسخه 2.5) 🚀      ${NC}"
+echo -e "${BLUE}     🚀 اسکریپت حرفه‌ای ضد DNS Leak (نسخه 2.7) 🚀      ${NC}"
 echo -e "${BLUE}=====================================================${NC}"
 echo -e "برنامه‌نویس اصلی: Big | بازبینی و بهبود: Alisa\n"
+
+# --- بررسی اتصال اولیه به اینترنت ---
+echo -e "${YELLOW}🌐 [بررسی اولیه] در حال بررسی اتصال اینترنت (پینگ به 8.8.8.8)...${NC}"
+if ! ping -c 3 -W 2 8.8.8.8 > /dev/null 2>&1; then
+    echo -e "${RED}❌ خطای اتصال به اینترنت! سرور نمی‌تواند به 8.8.8.8 پینگ کند. لطفاً اتصال شبکه را بررسی کنید.${NC}"
+    exit 1
+fi
+echo -e "${GREEN}✅ اتصال اینترنت اولیه برقرار است.${NC}"
+# --- پایان بررسی اتصال اولیه ---
 
 
 ### گام 1: به‌روزرسانی کامل سیستم
 echo -e "${YELLOW}🔄 [گام 1/7] در حال به‌روزرسانی کامل سیستم...${NC}"
-# استفاده از DEBIAN_FRONTEND=noninteractive برای جلوگیری از تعاملات debconf و needrestart
-DEBIAN_FRONTEND=noninteractive apt-get update -qq && \
-DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -qq -o Dpkg::Options::=--force-confold
+apt-get update -qq && \
+apt-get upgrade -y -qq -o Dpkg::Options::=--force-confold
 echo -e "${GREEN}✅ سیستم با موفقیت به‌روز شد.${NC}"
 
 
@@ -57,7 +68,7 @@ done
 
 if [ ${#MISSING_PKGS[@]} -gt 0 ]; then
     echo -e "🔧 نصب پکیج‌های: ${MISSING_PKGS[*]}"
-    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${MISSING_PKGS[@]}"
+    apt-get install -y -qq "${MISSING_PKGS[@]}"
 else
     echo -e "${GREEN}✅ تمام پکیج‌های ضروری از قبل نصب شده‌اند.${NC}"
 fi
@@ -72,17 +83,33 @@ echo -e "${GREEN}✅ لیست DNSهای نهایی: ${VALID_DNS[*]}${NC}"
 ### گام 4: نصب و پیکربندی cloudflared به عنوان سرویس
 echo -e "\n${BLUE}🚀 [گام 4/7] نصب و پیکربندی Cloudflare Tunnel (cloudflared)...${NC}"
 ARCH=$(dpkg --print-architecture)
-URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${ARCH}.deb"
-# دانلود cloudflared
-wget -q "$URL" -O cloudflared.deb
-if [ $? -ne 0 ]; then
-    echo -e "${RED}❌ خطای دانلود cloudflared. لطفاً از اتصال به اینترنت مطمئن شوید.${NC}"
+GITHUB_HOST="raw.githubusercontent.com"
+DOWNLOAD_PATH="/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${ARCH}.deb"
+
+echo -e "${YELLOW}⏳ در حال حل نام دامنه ${GITHUB_HOST} به صورت مستقیم...${NC}"
+GITHUB_IP=$(dig @8.8.8.8 +short ${GITHUB_HOST} | head -n 1)
+
+if [ -z "$GITHUB_IP" ] || [[ "$GITHUB_IP" == *[!0-9.]* ]]; then # Check if IP is valid
+    echo -e "${RED}❌ خطای حل نام دامنه ${GITHUB_HOST} به IP. لطفاً مطمئن شوید که 8.8.8.8 قابل دسترسی است.${NC}"
+    exit 1
+fi
+echo -e "${GREEN}✅ ${GITHUB_HOST} به IP: ${GITHUB_IP} حل شد.${NC}"
+
+DOWNLOAD_URL="https://${GITHUB_IP}${DOWNLOAD_PATH}"
+
+# دانلود cloudflared با استفاده از IP و تنظیم Host header
+echo -e "${YELLOW}⏳ در حال دانلود cloudflared از ${DOWNLOAD_URL} با Host header...${NC}"
+wget -q --header="Host: ${GITHUB_HOST}" "$DOWNLOAD_URL" -O cloudflared.deb
+DOWNLOAD_STATUS=$?
+
+if [ "$DOWNLOAD_STATUS" -ne 0 ]; then
+    echo -e "${RED}❌ خطای دانلود cloudflared (کد خطا: ${DOWNLOAD_STATUS}). لطفاً از اتصال به اینترنت مطمئن شوید و فایروال سرور را بررسی کنید.${NC}"
     exit 1
 fi
 
 # نصب cloudflared و بررسی موفقیت نصب
 echo -e "${YELLOW}🔧 در حال نصب بسته cloudflared...${NC}"
-if ! DEBIAN_FRONTEND=noninteractive dpkg -i cloudflared.deb; then
+if ! dpkg -i cloudflared.deb; then
     echo -e "${RED}❌ خطای نصب cloudflared. لطفاً خروجی بالا را بررسی کنید.${NC}"
     rm -f cloudflared.deb
     exit 1
