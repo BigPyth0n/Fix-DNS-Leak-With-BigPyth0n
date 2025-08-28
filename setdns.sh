@@ -4,14 +4,14 @@
 # اسکریپت بهینه‌سازی و ضد نشت DNS برای سرورهای لینوکس (مبتنی بر دبیان/اوبونتو)
 # برنامه‌نویس اصلی: Big
 # بازبینی و بهینه‌سازی: Alisa
-# نسخه: 2.1
+# نسخه: 2.2
 #
 # این اسکریپت سیستم را به‌روز می‌کند، DNSهای سریع و بومی را پیدا کرده و
 # با استفاده از cloudflared یک پراکسی امن DNS-over-HTTPS راه‌اندازی می‌کند
 # تا تمام ترافیک DNS از یک نقطه واحد و امن عبور کند.
 #
 # این نسخه برای رفع مشکلات گزارش‌شده در اوبونتو 22.04 و بهینه‌سازی فرایند نصب
-# و تشخیص کشور، اصلاح شده است.
+# و تشخیص کشور، اصلاح شده است. همچنین تعاملات اضافی در حین نصب پکیج‌ها حذف شده است.
 #================================================================================
 
 # --- رنگ‌ها برای خروجی بهتر ---
@@ -29,14 +29,16 @@ fi
 
 clear
 echo -e "${BLUE}=====================================================${NC}"
-echo -e "${BLUE}     🚀 اسکریپت حرفه‌ای ضد DNS Leak (نسخه 2.1) 🚀      ${NC}"
+echo -e "${BLUE}     🚀 اسکریپت حرفه‌ای ضد DNS Leak (نسخه 2.2) 🚀      ${NC}"
 echo -e "${BLUE}=====================================================${NC}"
 echo -e "برنامه‌نویس اصلی: Big | بازبینی و بهبود: Alisa\n"
 
 
 ### گام 1: به‌روزرسانی کامل سیستم
 echo -e "${YELLOW}🔄 [گام 1/7] در حال به‌روزرسانی کامل سیستم...${NC}"
-apt-get update -qq && apt-get upgrade -y -qq -o Dpkg::Options::=--force-confold
+# استفاده از DEBIAN_FRONTEND=noninteractive برای جلوگیری از تعاملات debconf و needrestart
+DEBIAN_FRONTEND=noninteractive apt-get update -qq && \
+DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -qq -o Dpkg::Options::=--force-confold
 echo -e "${GREEN}✅ سیستم با موفقیت به‌روز شد.${NC}"
 
 
@@ -52,19 +54,27 @@ done
 
 if [ ${#MISSING_PKGS[@]} -gt 0 ]; then
     echo -e "🔧 نصب پکیج‌های: ${MISSING_PKGS[*]}"
-    apt-get install -y -qq "${MISSING_PKGS[@]}"
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${MISSING_PKGS[@]}"
 else
     echo -e "${GREEN}✅ تمام پکیج‌های ضروری از قبل نصب شده‌اند.${NC}"
 fi
 
 
 ### گام 3: دریافت و تست DNSهای سالم بومی
-COUNTRY=$(curl -s ipapi.co/country)
-if [ -z "$COUNTRY" ]; then
-    echo -e "${RED}⚠️ [گام 3/7] امکان تشخیص کشور وجود ندارد. از DNS پیش‌فرض استفاده می‌شود.${NC}"
+echo -e "\n${BLUE}🌍 [گام 3/7] در حال تلاش برای تشخیص کشور و یافتن DNSهای بومی...${NC}"
+COUNTRY=$(curl -s --max-time 10 ipapi.co/country)
+
+if [ -z "$COUNTRY" ] || [ "$COUNTRY" == "Error" ]; then
+    # اگر ipapi.co موفق نبود، سرویس جایگزین را امتحان کن
+    echo -e "${YELLOW}⚠️ ipapi.co موفق به تشخیص کشور نشد. تلاش با سرویس جایگزین...${NC}"
+    COUNTRY=$(curl -s --max-time 10 https://ip-api.com/line?fields=countryCode | head -n 1)
+fi
+
+if [ -z "$COUNTRY" ] || [ "$COUNTRY" == "Error" ]; then
+    echo -e "${RED}⚠️ [گام 3/7] امکان تشخیص کشور وجود ندارد. از DNS پیش‌فرض Cloudflare استفاده می‌شود.${NC}"
     VALID_DNS=("1.1.1.1" "1.0.0.1")
 else
-    echo -e "\n${BLUE}🌍 [گام 3/7] کشور شناسایی‌شده: ${GREEN}${COUNTRY}${NC}"
+    echo -e "🌍 کشور شناسایی‌شده: ${GREEN}${COUNTRY}${NC}"
     echo -e "${YELLOW}🔍 در حال جستجو و تست DNSهای عمومی برای کشور ${COUNTRY}...${NC}"
 
     # دریافت لیست ۵ DNS برتر برای کشور مورد نظر
@@ -93,11 +103,21 @@ echo -e "${GREEN}✅ لیست DNSهای نهایی: ${VALID_DNS[*]}${NC}"
 echo -e "\n${BLUE}🚀 [گام 4/7] نصب و پیکربندی Cloudflare Tunnel (cloudflared)...${NC}"
 ARCH=$(dpkg --print-architecture)
 URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${ARCH}.deb"
-wget -q "$URL" -O cloudflared.deb && dpkg -i cloudflared.deb >/dev/null && rm cloudflared.deb
+# دانلود و نصب cloudflared
+wget -q "$URL" -O cloudflared.deb && \
+DEBIAN_FRONTEND=noninteractive dpkg -i cloudflared.deb >/dev/null && \
+rm cloudflared.deb
 
 # توقف سرویس در صورت اجرا بودن برای اعمال کانفیگ جدید
 systemctl stop cloudflared >/dev/null 2>&1
 pkill -f cloudflared >/dev/null 2>&1
+
+# یافتن مسیر اجرایی cloudflared (ممکن است در /usr/bin یا /usr/local/bin باشد)
+CLOUDFLARED_BIN=$(which cloudflared)
+if [ -z "$CLOUDFLARED_BIN" ]; then
+    echo -e "${RED}❌ فایل اجرایی cloudflared یافت نشد. نصب ناموفق بود.${NC}"
+    exit 1
+fi
 
 # ساخت فایل کانفیگ برای cloudflared
 mkdir -p /etc/cloudflared/
@@ -121,9 +141,10 @@ Description=Cloudflared DNS over HTTPS proxy
 After=network.target
 
 [Service]
-ExecStart=/usr/local/bin/cloudflared --config /etc/cloudflared/config.yml
+ExecStart=${CLOUDFLARED_BIN} --config /etc/cloudflared/config.yml
 Restart=on-failure
 RestartSec=10s
+User=nobody # اجرای سرویس با کاربر غیرمجاز برای امنیت بیشتر
 
 [Install]
 WantedBy=multi-user.target
@@ -132,12 +153,12 @@ EOF
 # فعال‌سازی و راه‌اندازی سرویس
 systemctl daemon-reload
 systemctl enable --now cloudflared
-sleep 2 # زمان کوتاه برای اجرای کامل سرویس
+sleep 5 # زمان بیشتر برای اجرای کامل سرویس و اطمینان از bind شدن پورت
 
 if systemctl is-active --quiet cloudflared; then
     echo -e "${GREEN}✅ سرویس cloudflared با موفقیت نصب و با DNSهای بومی پیکربندی شد.${NC}"
 else
-    echo -e "${RED}❌ خطا در اجرای سرویس cloudflared. لطفاً وضعیت را با 'systemctl status cloudflared' بررسی کنید.${NC}"
+    echo -e "${RED}❌ خطا در اجرای سرویس cloudflared. لطفاً وضعیت را با 'systemctl status cloudflared' و 'journalctl -xeu cloudflared' بررسی کنید.${NC}"
     exit 1
 fi
 
@@ -167,7 +188,7 @@ fi
 
 ### گام 7: بررسی نهایی و تأیید عملکرد
 echo -e "\n${BLUE}🧪 [گام 7/7] بررسی نهایی و تست DNS...${NC}"
-sleep 1 # اطمینان از آماده بودن سرویس‌ها
+sleep 2 # اطمینان از آماده بودن سرویس‌ها
 
 # با dig از سرور محلی کوئری می‌گیریم
 RESPONSE_IP=$(dig +short @127.0.0.1 google.com)
