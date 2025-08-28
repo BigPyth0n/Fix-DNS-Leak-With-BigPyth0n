@@ -4,7 +4,7 @@
 # اسکریپت بهینه‌سازی و ضد نشت DNS برای سرورهای لینوکس (مبتنی بر دبیان/اوبونتو)
 # برنامه‌نویس اصلی: Big
 # بازبینی و بهینه‌سازی: Alisa
-# نسخه: 2.3
+# نسخه: 2.4
 #
 # این اسکریپت سیستم را به‌روز می‌کند، DNSهای سریع و بومی را پیدا کرده و
 # با استفاده از cloudflared یک پراکسی امن DNS-over-HTTPS راه‌اندازی می‌کند
@@ -13,6 +13,7 @@
 # این نسخه برای رفع مشکلات گزارش‌شده در اوبونتو 22.04 و بهینه‌سازی فرایند نصب
 # و تشخیص کشور، اصلاح شده است. همچنین تعاملات اضافی در حین نصب پکیج‌ها حذف شده و
 # اطمینان از فعال بودن cloudflared قبل از تغییر پیکربندی سیستم DNS بهبود یافته است.
+# پایداری نصب و یافتن فایل اجرایی cloudflared نیز افزایش یافته است.
 #================================================================================
 
 # --- رنگ‌ها برای خروجی بهتر ---
@@ -30,7 +31,7 @@ fi
 
 clear
 echo -e "${BLUE}=====================================================${NC}"
-echo -e "${BLUE}     🚀 اسکریپت حرفه‌ای ضد DNS Leak (نسخه 2.3) 🚀      ${NC}"
+echo -e "${BLUE}     🚀 اسکریپت حرفه‌ای ضد DNS Leak (نسخه 2.4) 🚀      ${NC}"
 echo -e "${BLUE}=====================================================${NC}"
 echo -e "برنامه‌نویس اصلی: Big | بازبینی و بهبود: Alisa\n"
 
@@ -104,10 +105,23 @@ echo -e "${GREEN}✅ لیست DNSهای نهایی: ${VALID_DNS[*]}${NC}"
 echo -e "\n${BLUE}🚀 [گام 4/7] نصب و پیکربندی Cloudflare Tunnel (cloudflared)...${NC}"
 ARCH=$(dpkg --print-architecture)
 URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${ARCH}.deb"
-# دانلود و نصب cloudflared
-wget -q "$URL" -O cloudflared.deb && \
-DEBIAN_FRONTEND=noninteractive dpkg -i cloudflared.deb >/dev/null && \
-rm cloudflared.deb
+# دانلود cloudflared
+wget -q "$URL" -O cloudflared.deb
+if [ $? -ne 0 ]; then
+    echo -e "${RED}❌ خطای دانلود cloudflared. لطفاً از اتصال به اینترنت مطمئن شوید.${NC}"
+    exit 1
+fi
+
+# نصب cloudflared و بررسی موفقیت نصب
+echo -e "${YELLOW}🔧 در حال نصب بسته cloudflared...${NC}"
+if ! DEBIAN_FRONTEND=noninteractive dpkg -i cloudflared.deb; then
+    echo -e "${RED}❌ خطای نصب cloudflared. لطفاً خروجی بالا را بررسی کنید.${NC}"
+    rm -f cloudflared.deb
+    exit 1
+fi
+rm -f cloudflared.deb
+echo -e "${GREEN}✅ بسته cloudflared با موفقیت نصب شد.${NC}"
+
 
 # توقف سرویس در صورت اجرا بودن برای اعمال کانفیگ جدید
 systemctl stop cloudflared >/dev/null 2>&1
@@ -116,9 +130,18 @@ pkill -f cloudflared >/dev/null 2>&1
 # یافتن مسیر اجرایی cloudflared (ممکن است در /usr/bin یا /usr/local/bin باشد)
 CLOUDFLARED_BIN=$(which cloudflared)
 if [ -z "$CLOUDFLARED_BIN" ]; then
-    echo -e "${RED}❌ فایل اجرایی cloudflared یافت نشد. نصب ناموفق بود.${NC}"
-    exit 1
+    # اگر which پیدا نکرد، مسیرهای رایج را امتحان کن
+    if [ -f "/usr/bin/cloudflared" ]; then
+        CLOUDFLARED_BIN="/usr/bin/cloudflared"
+    elif [ -f "/usr/local/bin/cloudflared" ]; then
+        CLOUDFLARED_BIN="/usr/local/bin/cloudflared"
+    else
+        echo -e "${RED}❌ فایل اجرایی cloudflared یافت نشد! نصب ناموفق بود یا در مسیری غیرمنتظره قرار گرفت.${NC}"
+        exit 1
+    fi
 fi
+echo -e "${GREEN}ℹ️ فایل اجرایی cloudflared در: ${CLOUDFLARED_BIN} یافت شد.${NC}"
+
 
 # ساخت فایل کانفیگ برای cloudflared
 mkdir -p /etc/cloudflared/
