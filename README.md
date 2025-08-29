@@ -37,7 +37,7 @@
 
 ### 1. دریافت فایل بدون کش (با curl):
 ```bash
-curl -H 'Cache-Control: no-cache' -L https://raw.githubusercontent.com/BigPyth0n/Fix-DNS-Leak-With-GPT/main/setdns.sh -o setdns.sh
+curl -H 'Cache-Control: no-cache' -L https://raw.githubusercontent.com/BigPyth0n/Fix-DNS-Leak-With-BigPyth0n/refs/heads/main/setdns.sh -o setdns.sh
 ```
 
 ### 2. دادن دسترسی اجرا:
@@ -52,7 +52,7 @@ sudo ./setdns.sh
 
 ### 🚀 اجرای مستقیم با curl:
 ```bash
-bash <(curl -fsSL -H 'Cache-Control: no-cache' https://raw.githubusercontent.com/BigPyth0n/Fix-DNS-Leak-With-GPT/main/setdns.sh)
+bash <(curl -fsSL -H 'Cache-Control: no-cache' https://raw.githubusercontent.com/BigPyth0n/Fix-DNS-Leak-With-BigPyth0n/refs/heads/main/setdns.sh)
 ```
 
 ---
