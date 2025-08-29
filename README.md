@@ -80,10 +80,13 @@ dig +short google.com
 
 اسکریپت به‌صورت خودکار تست اولیه انجام می‌دهد.  
 
+
 ```bash
 # چک کن resolv.conf به systemd-resolved لینک شده باشد
 bash <(curl -fsSL -H 'Cache-Control: no-cache' https://raw.githubusercontent.com/BigPyth0n/Fix-DNS-Leak-With-BigPyth0n/refs/heads/main/TestFixed.sh)
 ```
+
+---
 
 و در نهایت برای اطمینان نهایی:  
 🔗 [dnsleaktest.com](https://dnsleaktest.com) → گزینه **Extended Test** را انتخاب کنید.  
