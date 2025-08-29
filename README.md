@@ -82,7 +82,6 @@ dig +short google.com
 
 
 ```bash
-# چک کن resolv.conf به systemd-resolved لینک شده باشد
 bash <(curl -fsSL -H 'Cache-Control: no-cache' https://raw.githubusercontent.com/BigPyth0n/Fix-DNS-Leak-With-BigPyth0n/refs/heads/main/TestFixed.sh)
 ```
 
